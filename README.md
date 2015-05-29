@@ -5,11 +5,14 @@ context_unnester
 Python 3. Still, it is used in a wide number of Python projects.
 
 context_unnester helps removing its usage, by automatically fixing the code.
-This script:
-* detects `contextlib.nested` occurences and replaces them by appropriate
-  `with` syntax,
-* removes imports of `contextlib` when they are not needed anymore,
-* tries to make the replaced code PEP8-compatible.
+
+Features
+--------
+
+* Detects `contextlib.nested` occurences and replaces them by appropriate
+  `with` syntax.
+* Removes imports of `contextlib` when they are not needed anymore.
+* Tries to make the replaced code PEP8-compatible.
 
 Usage
 -----
