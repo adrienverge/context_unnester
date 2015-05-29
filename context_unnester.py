@@ -267,7 +267,8 @@ def find_python_source_files(path):
 def main():
     parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument('paths', metavar='PATH', nargs='+',
-                        help='Path to source that needs to be fixed')
+                        help='Path to source that needs to be fixed. If PATH '
+                             'is a dir, apply to all Python files in it.')
 
     args = parser.parse_args()
 

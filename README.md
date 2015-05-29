@@ -21,7 +21,8 @@ Usage
 usage: context_unnester.py [-h] PATH [PATH ...]
 
 positional arguments:
-  PATH        Path to source that needs to be fixed
+  PATH        Path to source that needs to be fixed. If PATH is a dir, apply
+              to all Python files in it.
 
 optional arguments:
   -h, --help  show this help message and exit
