@@ -22,11 +22,18 @@ import argparse
 import os
 import re
 
-import autopep8
-
 
 DESCRIPTION = """Fixes Python source code that use contextlib.nested.
 This method is deprecated since Python 2.7 and incompatible with Python 3."""
+
+
+def get_indent(string):
+    """Returns the indentation string at the beginning of the first line."""
+
+    r = re.match(r'\s*', string)
+    if r:
+        return r.group(0)
+    return ''
 
 
 def unwrap_tuple(string):
@@ -46,14 +53,15 @@ def unwrap_tuple(string):
 
     for i in range(len(string)):
         if string[i] == '(':
-            i += 1
             break
+    i += 1
     before = string[:i]
 
     args = []
     nest = 0
     quote = None
-    for j in range(i, len(string)):
+    j = i
+    while j < len(string):
         char = string[j]
         if quote:
             # If we're in a quote and char is ending it
@@ -67,37 +75,63 @@ def unwrap_tuple(string):
             nest -= 1
             if nest < 0:
                 # last arg
-                args.append(string[i:j].strip())
+                arg = string[i:j].strip()
+                if arg:  # avoid the (1, 2, ) case
+                    args.append(arg)
                 break
         elif nest == 0 and char == ',':
             args.append(string[i:j].strip())
             i = j + 1
+        j += 1
 
     after = string[j:]
     return before, args, after
 
 
-def detuple(string):
-    ret = []
-    start = 0
-    nest = 0
-    for i in range(len(string)):
-        char = string[i]
-        if char == ')':
-            nest -= 1
-        elif char == '(':
-            nest += 1
-        elif nest == 0 and char == ',':
-            ret.append(string[start:i].strip())
-            start = i + 1
-        if nest < 0:
-            i = len(string)
-            break
-    i += 1
-    if i > start:
-        if string[start:i].strip() != '':
-            ret.append(string[start:i].strip())
-    return ret
+def cut_long_line(string, line_len=79):
+    """Splits lines longer than 79 chars into several.
+
+    It tries to generate PEP8-compliant code.
+    """
+
+    if len(string) <= line_len:
+        return string
+
+    b, args, a = unwrap_tuple(string)
+    indent = get_indent(b)
+
+    # long_function(a,
+    #               b,
+    #               c)
+    attempt = b + (',\n' + ' ' * len(b)).join(args) + a
+    if max(map(len, attempt.splitlines())) <= line_len:
+        return attempt
+
+    # long_function(
+    #     a,
+    #     b,
+    #     c)
+    attempt = b + (',\n' + ' ' * len(b)).join(args) + a
+    indent += '    '
+    attempt = b + '\n' + indent + (',\n' + indent).join(args) + a
+    if max(map(len, attempt.splitlines())) <= line_len:
+        return attempt
+
+    # long_function(
+    #     a,
+    #     other_long_function(x,
+    #                         y,
+    #                         z),
+    #     c)
+    newlines = [attempt.splitlines()[0]]
+    for line in attempt.splitlines()[1:]:
+        newlines.append(cut_long_line(line))
+    attempt = '\n'.join(newlines)
+    if max(map(len, attempt.splitlines())) <= line_len:
+        return attempt
+
+    # All other attempts failed
+    return string
 
 
 class BadlyNestedCodeBlock(object):
@@ -106,52 +140,6 @@ class BadlyNestedCodeBlock(object):
         self.indent = indent
         self.keys = keys
         self.vals = vals
-
-    def autopep8(self, source):
-        """Uses autopep8 to make source code better."""
-
-        # But before, add fake statements before to prevent autopep8 from
-        # removing indents
-        nest = int(len(self.indent) / 4)
-        for i in range(nest):
-            source = '    ' * (nest - i - 1) + 'while True:\n' + source
-
-        source = autopep8.fix_code(source)
-
-        # Remove fake statements
-        source = '\n'.join(source.splitlines()[nest:])
-
-        return source
-
-    def cut_long_lines(self, source):
-        newlines = []
-        for line in source.splitlines():
-            if len(line) > 79:
-                try:
-                    pos = line.find('(') + 1
-                    args = detuple(line[pos:])
-                    line = line[:pos] + (',\n' + ' ' * len(line[:pos])).join(args)
-                except ValueError:
-                    pass
-
-                #line = re.sub(r'\((\w)', '(\n' + self.indent + r'    \1',
-                #              line, 1)
-                print(line)
-
-                # try:
-                #     pos = line.index('(') + 1
-                #     pos1 = line.index('(', pos)
-                #     pos2 = line.index(')', pos)
-                #     if pos < length:
-                #         newlines.append(line[:pos])
-                #         newlines.append(self.indent + '    ' + line[pos:])
-                #         continue
-                # except ValueError:
-                #     pass
-            newlines.append(line)
-        source = '\n'.join(newlines)
-
-        return source
 
     def rewrite(self):
         """Rewrites a code block by transforming the nested() call.
@@ -176,7 +164,9 @@ class BadlyNestedCodeBlock(object):
         keys = None
         if self.keys:
             _, keys, _ = unwrap_tuple('(' + self.keys + ')')
-            assert len(keys) == len(vals) or len(keys) == 1
+            if len(keys) != len(vals) and len(keys) != 1:
+                raise Exception('Number of keys and vals not matching:\n'
+                                '%s\n%s\n' % (self.keys, self.vals))
             if len(keys) == 1 and len(vals) > 1:
                 tuple_var = keys[0]
                 keys = ['v' + str(i) for i in range(1, len(vals) + 1)]
@@ -189,14 +179,11 @@ class BadlyNestedCodeBlock(object):
                 if keys[i]:
                     if (keys[i][0] != '(' and
                             not re.search(r'\b%s\b' % keys[i], self.inner)):
-                        # print(keys[i])
-                        # print(self.inner)
-                        # assert False
                         keys[i] = None
 
         # Clean vals
-        # for i in range(len(vals)):
-        #     vals[i] = re.sub(r'\s*\\?\n\s*', r' ', vals[i])
+        for i in range(len(vals)):
+            vals[i] = re.sub(r'\s*\\?\n\s*', r' ', vals[i])
 
         stmts = []
         for i in range(len(vals)):
@@ -212,22 +199,18 @@ class BadlyNestedCodeBlock(object):
         # else, one line per statement
         else:
             lines = (self.indent + 'with ' +
-                     ',\\\n        '.join(stmts) + ':').splitlines()
+                     (',\\\n' + self.indent + '        ').join(stmts) +
+                     ':').splitlines()
 
         if tuple_var:
             lines.append(self.indent + '    ' +
                          tuple_var + ' = (' + ', '.join(keys) + ')')
 
-        block = '\n'.join(lines)
-
-        # Use autopep8 to format code
-        block = self.autopep8(block)
-
         # Try to split long lines
-        block = self.cut_long_lines(block)
-
-        # Use autopep8 to format code
-        block = self.autopep8(block)
+        newlines = []
+        for line in lines:
+           newlines.append(cut_long_line(line))
+        block = '\n'.join(newlines)
 
         return block
 
