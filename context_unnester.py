@@ -263,7 +263,11 @@ def remove_useless_import(content):
     if len(re.findall(r'\bcontextlib\b', content)) > 1:
         return content
 
-    return re.sub(r'^import contextlib\n', r'', content, 0, re.MULTILINE)
+    # Also remove newline if import is isolated
+    content = re.sub(r'\n\nimport contextlib\n\n', '\n\n', content)
+    content = re.sub(r'^import contextlib\n', '', content, 0, re.MULTILINE)
+
+    return content
 
 
 def fix_file(file):

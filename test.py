@@ -117,3 +117,26 @@ class ContextUnnesterTestCase(unittest.TestCase):
 """
         res = context_unnester.unnest_source(input)
         self.assertEqual(res, output)
+
+    def test_remove_useless_import(self):
+        input = ('import stdlib\n'
+                 '\n'
+                 'import contextlib\n'
+                 'import otherlib\n')
+        output = ('import stdlib\n'
+                  '\n'
+                  'import otherlib\n')
+        res = context_unnester.remove_useless_import(input)
+        self.assertEqual(res, output)
+
+    def test_remove_useless_import_isolated(self):
+        input = ('import stdlib\n'
+                 '\n'
+                 'import contextlib\n'
+                 '\n'
+                 'import otherlib\n')
+        output = ('import stdlib\n'
+                  '\n'
+                  'import otherlib\n')
+        res = context_unnester.remove_useless_import(input)
+        self.assertEqual(res, output)
