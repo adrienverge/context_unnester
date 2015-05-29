@@ -29,6 +29,54 @@ DESCRIPTION = """Fixes Python source code that use contextlib.nested.
 This method is deprecated since Python 2.7 and incompatible with Python 3."""
 
 
+def unwrap_tuple(string):
+    """Return tuples contained in a string.
+
+    Example:
+    >>> str = '   with mock(x, "string", call(), 42) as m:'
+    >>> before, args, after = unwrap_tuple(str)
+    >>> before
+    '   with mock('
+    >>> args
+    ['x', '"string"', 'call()', '42']
+    >>> after
+    ') as m:'
+
+    """
+
+    for i in range(len(string)):
+        if string[i] == '(':
+            i += 1
+            break
+    before = string[:i]
+
+    args = []
+    nest = 0
+    quote = None
+    for j in range(i, len(string)):
+        char = string[j]
+        if quote:
+            # If we're in a quote and char is ending it
+            if char == quote and (j == 0 or string[j - 1] != '\\'):
+                quote = None
+        elif char in ('"', "'"):
+            quote = char
+        elif char == '(':
+            nest += 1
+        elif char == ')':
+            nest -= 1
+            if nest < 0:
+                # last arg
+                args.append(string[i:j].strip())
+                break
+        elif nest == 0 and char == ',':
+            args.append(string[i:j].strip())
+            i = j + 1
+
+    after = string[j:]
+    return before, args, after
+
+
 def detuple(string):
     ret = []
     start = 0
@@ -121,13 +169,13 @@ class BadlyNestedCodeBlock(object):
                do_stuff(1, abc)
         """
 
-        vals = detuple(self.vals)
+        _, vals, _ = unwrap_tuple('(' + self.vals + ')')
 
         tuple_var = None
 
         keys = None
         if self.keys:
-            keys = detuple(self.keys)
+            _, keys, _ = unwrap_tuple('(' + self.keys + ')')
             assert len(keys) == len(vals) or len(keys) == 1
             if len(keys) == 1 and len(vals) > 1:
                 tuple_var = keys[0]
